@@ -31,7 +31,8 @@ pub fn lint_hurl_file(hurl_file: &HurlFile) -> HurlFile {
     HurlFile {
         entries: hurl_file.entries.iter().map(lint_entry).collect(),
         line_terminators: hurl_file.line_terminators.clone(),
-    }
+    bindings: None,
+        }
 }
 
 fn lint_entry(entry: &Entry) -> Entry {
@@ -675,10 +676,12 @@ mod tests {
         let hurl_file = HurlFile {
             entries: vec![],
             line_terminators: vec![],
+        bindings: None,
         };
         let hurl_file_linted = HurlFile {
             entries: vec![],
             line_terminators: vec![],
+        bindings: None,
         };
         assert_eq!(lint_hurl_file(&hurl_file), hurl_file_linted);
     }
@@ -688,10 +691,12 @@ mod tests {
         let entry = HurlFile {
             entries: vec![],
             line_terminators: vec![],
+        bindings: None,
         };
         let entry_linted = HurlFile {
             entries: vec![],
             line_terminators: vec![],
+        bindings: None,
         };
         assert_eq!(lint_hurl_file(&entry), entry_linted);
     }

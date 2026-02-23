@@ -121,6 +121,7 @@ impl Worker {
 
             // Now, we have a syntactically correct HurlFile instance, we can run it.
             let result = runner::run_entries(
+                &hurl_file,
                 &hurl_file.entries,
                 &content,
                 Some(&job.filename),

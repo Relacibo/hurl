@@ -21,8 +21,8 @@ use hurl_core::ast::{
     FilenameValue, FilterValue, Hex, HurlFile, IntegerValue, JsonValue, KeyValue, LineTerminator,
     Method, MultilineString, MultipartParam, NaturalOption, Number, OptionKind, Placeholder,
     Predicate, PredicateFuncValue, PredicateValue, Query, QueryValue, Regex, RegexValue, Request,
-    Response, Section, SectionValue, StatusValue, Template, VariableDefinition, VariableValue,
-    VerbosityOption, VersionValue, I64, U64,
+    Response, Section, SectionValue, StatusValue, BindingParam, BindingExpr, Template, VariableDefinition, 
+    VariableValue, VerbosityOption, VersionValue, I64, U64,
 };
 use hurl_core::types::{Count, Duration, DurationUnit, ToSource};
 
@@ -349,6 +349,10 @@ impl Lint for Hex {
 impl Lint for HurlFile {
     fn lint(&self) -> String {
         let mut s = String::new();
+        // Lint global bindings section if present
+        if let Some(ref bindings_section) = self.bindings {
+            s.push_str(&bindings_section.lint());
+        }
         self.entries.iter().for_each(|e| s.push_str(&e.lint()));
         self.line_terminators
             .iter()
@@ -392,6 +396,35 @@ impl Lint for KeyValue {
         }
         s.push_str(&lint_lt(&self.line_terminator0, true));
         s
+    }
+}
+
+impl Lint for BindingParam {
+    fn lint(&self) -> String {
+        let mut s = String::new();
+        self.line_terminators
+            .iter()
+            .for_each(|lt| s.push_str(&lint_lt(lt, false)));
+        s.push_str(&self.name.lint());
+        s.push(':');
+        s.push(' ');
+        s.push_str(&self.value.lint());
+        s.push_str(&lint_lt(&self.line_terminator0, true));
+        s
+    }
+}
+
+impl Lint for BindingExpr {
+    fn lint(&self) -> String {
+        match self {
+            BindingExpr::File { space0, filename } => {
+                let mut s = String::new();
+                s.push_str("file");
+                s.push_str(space0.as_str());
+                s.push_str(&filename.lint());
+                s
+            }
+        }
     }
 }
 
@@ -696,6 +729,9 @@ impl Lint for Request {
         if let Some(section) = get_option_section(self) {
             s.push_str(&section.lint());
         }
+        if let Some(section) = get_sync_section(self) {
+            s.push_str(&section.lint());
+        }
         if let Some(section) = get_query_params_section(self) {
             s.push_str(&section.lint());
         }
@@ -787,6 +823,9 @@ impl Lint for SectionValue {
             }
             SectionValue::Options(options) => {
                 options.iter().for_each(|o| s.push_str(&o.lint()));
+            }
+            SectionValue::Bindings(params) => {
+                params.iter().for_each(|p| s.push_str(&p.lint()));
             }
         }
         s
@@ -905,6 +944,15 @@ fn get_query_params_section(request: &Request) -> Option<&Section> {
 fn get_basic_auth_section(request: &Request) -> Option<&Section> {
     for s in &request.sections {
         if let SectionValue::BasicAuth(Some(_)) = s.value {
+            return Some(s);
+        }
+    }
+    None
+}
+
+fn get_sync_section(request: &Request) -> Option<&Section> {
+    for s in &request.sections {
+        if let SectionValue::Bindings(_) = s.value {
             return Some(s);
         }
     }

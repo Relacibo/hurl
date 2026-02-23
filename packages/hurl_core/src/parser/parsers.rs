@@ -26,18 +26,71 @@ use crate::parser::primitives::{
     eof, key_value, line_terminator, one_or_more_spaces, optional_line_terminators, try_literal,
     zero_or_more_spaces,
 };
-use crate::parser::sections::{request_sections, response_sections};
+use crate::parser::sections::{
+    request_sections, response_sections, section_name, section_value_sync,
+};
 use crate::parser::string::unquoted_template;
 use crate::parser::{ParseError, ParseErrorKind, ParseResult};
 use crate::reader::Reader;
 
 pub fn hurl_file(reader: &mut Reader) -> ParseResult<HurlFile> {
+    // Try to parse optional global [Bindings] section at the start
+    let bindings = optional(global_bindings_section, reader)?;
+
     let entries = zero_or_more(entry, reader)?;
     let line_terminators = optional_line_terminators(reader)?;
     eof(reader)?;
     Ok(HurlFile {
         entries,
         line_terminators,
+        bindings,
+    })
+}
+
+fn global_bindings_section(reader: &mut Reader) -> ParseResult<Section> {
+    let save = reader.cursor();
+
+    let line_terminators = optional_line_terminators(reader)?;
+    let space0 = zero_or_more_spaces(reader)?;
+    let start = reader.cursor();
+
+    // Parse [SectionName] - section_name handles the brackets
+    let name = match section_name(reader) {
+        Ok(n) => n,
+        Err(_) => {
+            reader.seek(save);
+            return Err(ParseError::new(
+                start.pos,
+                false,
+                ParseErrorKind::Expecting {
+                    value: "[Bindings]".to_string(),
+                },
+            ));
+        }
+    };
+
+    if name != "Bindings" {
+        // Not a Bindings section - rewind
+        reader.seek(save);
+        return Err(ParseError::new(
+            start.pos,
+            false,
+            ParseErrorKind::Expecting {
+                value: "Bindings".to_string(),
+            },
+        ));
+    }
+
+    let source_info = SourceInfo::new(start.pos, reader.cursor().pos);
+    let line_terminator0 = line_terminator(reader)?;
+    let value = section_value_sync(reader)?;
+
+    Ok(Section {
+        line_terminators,
+        space0,
+        line_terminator0,
+        value,
+        source_info,
     })
 }
 

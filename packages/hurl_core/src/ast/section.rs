@@ -50,6 +50,7 @@ impl Section {
             SectionValue::MultipartFormData(_, true) => "Multipart",
             SectionValue::MultipartFormData(_, false) => "MultipartFormData",
             SectionValue::Options(_) => "Options",
+            SectionValue::Bindings(_) => "Bindings",
         }
     }
 }
@@ -65,6 +66,7 @@ pub enum SectionValue {
     Captures(Vec<Capture>),
     Asserts(Vec<Assert>),
     Options(Vec<EntryOption>),
+    Bindings(Vec<BindingParam>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -76,6 +78,25 @@ pub struct Cookie {
     pub space2: Whitespace,
     pub value: Template,
     pub line_terminator0: LineTerminator,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BindingParam {
+    pub line_terminators: Vec<LineTerminator>,
+    pub space0: Whitespace,
+    pub name: Template,
+    pub space1: Whitespace,
+    pub space2: Whitespace,
+    pub value: BindingExpr,
+    pub line_terminator0: LineTerminator,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BindingExpr {
+    File {
+        space0: Whitespace,
+        filename: Template,
+    },
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -462,6 +483,45 @@ impl ToSource for PredicateFuncValue {
     fn to_source(&self) -> SourceString {
         let mut s = SourceString::new();
         s.push_str(self.identifier());
+        s
+    }
+}
+
+impl ToSource for BindingParam {
+    fn to_source(&self) -> SourceString {
+        let mut s = SourceString::new();
+        for lt in &self.line_terminators {
+            s.push_str(&lt.space0.value);
+            if let Some(comment) = &lt.comment {
+                s.push_str(&comment.value);
+            }
+            s.push_str(&lt.newline.value);
+        }
+        s.push_str(&self.space0.value);
+        s.push_str(self.name.to_source().as_str());
+        s.push_str(&self.space1.value);
+        s.push(':');
+        s.push_str(&self.space2.value);
+        s.push_str(self.value.to_source().as_str());
+        s.push_str(&self.line_terminator0.space0.value);
+        if let Some(comment) = &self.line_terminator0.comment {
+            s.push_str(&comment.value);
+        }
+        s.push_str(&self.line_terminator0.newline.value);
+        s
+    }
+}
+
+impl ToSource for BindingExpr {
+    fn to_source(&self) -> SourceString {
+        let mut s = SourceString::new();
+        match self {
+            BindingExpr::File { space0, filename } => {
+                s.push_str("file");
+                s.push_str(&space0.value);
+                s.push_str(filename.to_source().as_str());
+            }
+        }
         s
     }
 }

@@ -19,7 +19,7 @@ use std::thread;
 use std::time::Instant;
 
 use chrono::Utc;
-use hurl_core::ast::{Entry, OptionKind, SourceInfo};
+use hurl_core::ast::{Entry, HurlFile, OptionKind, SectionValue, SourceInfo};
 use hurl_core::error::{DisplaySourceError, OutputFormat};
 use hurl_core::input::Input;
 use hurl_core::parser;
@@ -29,6 +29,7 @@ use crate::http::{Call, Client};
 use crate::util::logger::{ErrorFormat, Logger, LoggerOptions};
 use crate::util::term::{Stderr, Stdout, WriteMode};
 
+use super::bindings::BoundVariables;
 use super::entry;
 use super::event::EventListener;
 use super::options;
@@ -122,6 +123,7 @@ pub fn run(
 
     // Now, we have a syntactically correct HurlFile instance, we can run it.
     let result = run_entries(
+        &hurl_file,
         &hurl_file.entries,
         content,
         filename,
@@ -148,6 +150,7 @@ pub fn run(
 /// New entry run events are reported to `progress` and are usually used to display a progress bar
 /// in test mode.
 pub fn run_entries(
+    hurl_file: &HurlFile,
     entries: &[Entry],
     content: &str,
     filename: Option<&Input>,
@@ -169,6 +172,21 @@ pub fn run_entries(
     let mut http_client = Client::new();
     let mut entries_result = vec![];
     let mut variables = variables.clone();
+    let mut bound_variables = BoundVariables::new();
+
+    // Process global [Bindings] section if present
+    if let Some(bindings_section) = &hurl_file.bindings {
+        if let SectionValue::Bindings(binding_params) = &bindings_section.value {
+            if let Err(error) = bound_variables.process_bindings(
+                binding_params,
+                &mut variables,
+                &runner_options.context_dir,
+            ) {
+                logger.warning(&format!("Bindings processing failed: {:?}", error.kind));
+            }
+        }
+    }
+
     let mut current = Index::new(runner_options.from_entry.unwrap_or(1));
     let mut repeat_count = 0;
     let last = Index::new(runner_options.to_entry.unwrap_or(entries.len()));
@@ -267,6 +285,7 @@ pub fn run_entries(
             &mut http_client,
             &options,
             &mut variables,
+            &mut bound_variables,
             stdout,
             listener,
             logger,
@@ -330,6 +349,7 @@ fn run_request(
     http_client: &mut Client,
     options: &RunnerOptions,
     variables: &mut VariableSet,
+    bound_variables: &mut BoundVariables,
     stdout: &mut Stdout,
     listener: Option<&dyn EventListener>,
     logger: &mut Logger,
@@ -338,7 +358,15 @@ fn run_request(
     let mut retry_count = 0;
 
     loop {
-        let mut result = entry::run(entry, current, http_client, variables, options, logger);
+        let mut result = entry::run(
+            entry,
+            current,
+            http_client,
+            variables,
+            bound_variables,
+            options,
+            logger,
+        );
 
         // Check if we need to retry.
         let mut has_error = !result.errors.is_empty();

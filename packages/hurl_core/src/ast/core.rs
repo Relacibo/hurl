@@ -30,6 +30,7 @@ use super::section::{Assert, Capture, Cookie, MultipartParam, RegexValue, Sectio
 pub struct HurlFile {
     pub entries: Vec<Entry>,
     pub line_terminators: Vec<LineTerminator>,
+    pub bindings: Option<Section>,
 }
 
 /// Represents an entry; a request AST specification to be run and an optional response AST

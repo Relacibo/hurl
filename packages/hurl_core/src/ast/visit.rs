@@ -202,6 +202,10 @@ pub trait Visitor: Sized {
         walk_section_value(self, section_value);
     }
 
+    fn visit_binding_param(&mut self, param: &crate::ast::BindingParam) {
+        walk_binding_param(self, param);
+    }
+
     fn visit_template(&mut self, template: &Template) {}
 
     fn visit_url(&mut self, url: &Template) {}
@@ -550,6 +554,9 @@ pub fn walk_hex<V: Visitor>(visitor: &mut V, hex: &Hex) {
 }
 
 pub fn walk_hurl_file<V: Visitor>(visitor: &mut V, file: &HurlFile) {
+    if let Some(ref bindings_section) = file.bindings {
+        visitor.visit_section(bindings_section);
+    }
     file.entries.iter().for_each(|e| visitor.visit_entry(e));
     file.line_terminators.iter().for_each(|lt| {
         visitor.visit_lt(lt);
@@ -793,7 +800,29 @@ pub fn walk_section_value<V: Visitor>(visitor: &mut V, section_value: &SectionVa
             options.iter().for_each(|o| visitor.visit_entry_option(o));
         }
         SectionValue::QueryParams(params, _) => params.iter().for_each(|p| visitor.visit_kv(p)),
+        SectionValue::Bindings(binding_params) => {
+            binding_params.iter().for_each(|p| visitor.visit_binding_param(p))
+        }
     }
+}
+
+pub fn walk_binding_param<V: Visitor>(visitor: &mut V, param: &crate::ast::BindingParam) {
+    param.line_terminators.iter().for_each(|lt| {
+        visitor.visit_lt(lt);
+    });
+    visitor.visit_whitespace(&param.space0);
+    visitor.visit_template(&param.name);
+    visitor.visit_whitespace(&param.space1);
+    visitor.visit_literal(":");
+    visitor.visit_whitespace(&param.space2);
+    match &param.value {
+        crate::ast::BindingExpr::File { space0, filename } => {
+            visitor.visit_literal("file");
+            visitor.visit_whitespace(space0);
+            visitor.visit_template(filename);
+        }
+    }
+    visitor.visit_lt(&param.line_terminator0);
 }
 
 pub fn walk_variable_def<V: Visitor>(visitor: &mut V, def: &VariableDefinition) {

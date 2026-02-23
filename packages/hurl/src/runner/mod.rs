@@ -29,10 +29,12 @@ pub use self::number::Number;
 pub use self::output::Output;
 pub use self::result::{AssertResult, CaptureResult, EntryResult, HurlResult};
 pub use self::runner_options::{RunnerOptions, RunnerOptionsBuilder};
+pub use self::bindings::BoundVariables;
 pub use self::value::{EvalError, Value};
 pub use self::variable::{Variable, VariableSet, Visibility};
 
 mod assert;
+mod bindings;
 mod body;
 mod cache;
 mod capture;

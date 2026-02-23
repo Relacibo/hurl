@@ -16,8 +16,8 @@
  *
  */
 use crate::ast::{
-    Assert, Capture, Cookie, FilenameParam, FilenameValue, MultipartParam, Section, SectionValue,
-    SourceInfo, Whitespace,
+    Assert, BindingExpr, BindingParam, Capture, Cookie, FilenameParam, FilenameValue,
+    MultipartParam, Section, SectionValue, SourceInfo, Whitespace,
 };
 use crate::combinator::{optional, recover, zero_or_more};
 use crate::parser::filter::filters;
@@ -27,7 +27,7 @@ use crate::parser::primitives::{
     try_literal, zero_or_more_spaces,
 };
 use crate::parser::query::query;
-use crate::parser::string::unquoted_template;
+use crate::parser::string::{quoted_template, unquoted_template};
 use crate::parser::{filename, key_string, option, ParseError, ParseErrorKind, ParseResult};
 use crate::reader::{Pos, Reader};
 
@@ -41,7 +41,7 @@ pub fn response_sections(reader: &mut Reader) -> ParseResult<Vec<Section>> {
     Ok(sections)
 }
 
-fn request_section(reader: &mut Reader) -> ParseResult<Section> {
+pub fn request_section(reader: &mut Reader) -> ParseResult<Section> {
     let line_terminators = optional_line_terminators(reader)?;
     let space0 = zero_or_more_spaces(reader)?;
     let start = reader.cursor();
@@ -59,6 +59,11 @@ fn request_section(reader: &mut Reader) -> ParseResult<Section> {
         "MultipartFormData" => section_value_multipart_form_data(reader, false)?,
         "Cookies" => section_value_cookies(reader)?,
         "Options" => section_value_options(reader)?,
+        "Bindings" => {
+            let kind = ParseErrorKind::RequestSectionName { name: "Bindings".to_string() };
+            let pos = Pos::new(start.pos.line, start.pos.column + 1);
+            return Err(ParseError::new(pos, false, kind));
+        }
         _ => {
             let kind = ParseErrorKind::RequestSectionName { name: name.clone() };
             let pos = Pos::new(start.pos.line, start.pos.column + 1);
@@ -103,7 +108,7 @@ fn response_section(reader: &mut Reader) -> ParseResult<Section> {
     })
 }
 
-fn section_name(reader: &mut Reader) -> ParseResult<String> {
+pub fn section_name(reader: &mut Reader) -> ParseResult<String> {
     let pos = reader.cursor().pos;
     try_literal("[", reader)?;
     let name = reader.read_while(|c| c.is_alphanumeric());
@@ -159,6 +164,11 @@ fn section_value_asserts(reader: &mut Reader) -> ParseResult<SectionValue> {
 fn section_value_options(reader: &mut Reader) -> ParseResult<SectionValue> {
     let options = zero_or_more(option::parse, reader)?;
     Ok(SectionValue::Options(options))
+}
+
+pub fn section_value_sync(reader: &mut Reader) -> ParseResult<SectionValue> {
+    let items = zero_or_more(binding_param, reader)?;
+    Ok(SectionValue::Bindings(items))
 }
 
 fn cookie(reader: &mut Reader) -> ParseResult<Cookie> {
@@ -320,6 +330,56 @@ fn assert(reader: &mut Reader) -> ParseResult<Assert> {
         predicate: predicate0,
         line_terminator0,
     })
+}
+
+fn binding_param(reader: &mut Reader) -> ParseResult<BindingParam> {
+    let line_terminators = optional_line_terminators(reader)?;
+    let space0 = zero_or_more_spaces(reader)?;
+    let name = recover(key_string::parse, reader)?;
+    let space1 = zero_or_more_spaces(reader)?;
+    recover(|p1| literal(":", p1), reader)?;
+    let space2 = zero_or_more_spaces(reader)?;
+
+    let value = binding_expr(reader)?;
+    let line_terminator0 = line_terminator(reader)?;
+
+    Ok(BindingParam {
+        line_terminators,
+        space0,
+        name,
+        space1,
+        space2,
+        value,
+        line_terminator0,
+    })
+}
+
+fn binding_expr(reader: &mut Reader) -> ParseResult<BindingExpr> {
+    let save = reader.cursor();
+
+    if literal("file", reader).is_ok() {
+        let space0 = zero_or_more_spaces(reader)?;
+
+        // Try different template types:
+        // 1. Quoted: ".token"
+        // 2. Filename: .token or file\ with\ spaces.txt
+        // 3. Unquoted template: {env}/.token
+        let filename = if let Ok(template) = quoted_template(reader) {
+            template
+        } else if let Ok(template) = filename::parse(reader) {
+            template
+        } else {
+            unquoted_template(reader)?
+        };
+        return Ok(BindingExpr::File { space0, filename });
+    }
+
+    // No valid sync expression found
+    reader.seek(save);
+    let kind = ParseErrorKind::Expecting {
+        value: "sync expression (file, ...)".to_string(),
+    };
+    Err(ParseError::new(reader.cursor().pos, false, kind))
 }
 
 #[cfg(test)]

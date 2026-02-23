@@ -31,6 +31,7 @@ use super::request;
 use super::response;
 use super::result::{AssertResult, CaptureResult, EntryResult};
 use super::runner_options::RunnerOptions;
+use super::bindings::BoundVariables;
 use super::variable::VariableSet;
 
 /// Runs an `entry` with `http_client` and returns one [`EntryResult`].
@@ -44,6 +45,7 @@ pub fn run(
     entry_index: Index,
     http_client: &mut http::Client,
     variables: &mut VariableSet,
+    bound_variables: &mut BoundVariables,
     runner_options: &RunnerOptions,
     logger: &mut Logger,
 ) -> EntryResult {
@@ -170,10 +172,33 @@ pub fn run(
     };
 
     let captures = match &entry.response {
-        None => vec![],
+        None => {
+            vec![]
+        }
         Some(response_spec) => {
             match response::eval_captures(response_spec, &responses, &mut cache, variables) {
-                Ok(captures) => captures,
+                Ok(captures) => {
+                    // Write bound variables to their files
+                    if let Err(error) = write_bound_captures(
+                        &captures,
+                        bound_variables,
+                        variables,
+                        source_info,
+                    ) {
+                        return EntryResult {
+                            entry_index,
+                            source_info,
+                            calls,
+                            captures: vec![],
+                            asserts,
+                            errors: vec![error],
+                            transfer_duration,
+                            compressed,
+                            curl_cmd,
+                        };
+                    }
+                    captures
+                }
                 Err(e) => {
                     return EntryResult {
                         entry_index,
@@ -423,4 +448,22 @@ fn captures_has_decode_filter(a: &Capture) -> bool {
     a.filters
         .iter()
         .any(|(_, f)| matches!(f.value, FilterValue::Decode { .. }))
+}
+
+/// Writes captured variables to their bound files
+fn write_bound_captures(
+    captures: &[CaptureResult],
+    bound_variables: &mut BoundVariables,
+    variables: &VariableSet,
+    source_info: SourceInfo,
+) -> Result<(), RunnerError> {
+    for capture in captures {
+        let var_name = &capture.name;
+        if bound_variables.is_bound(var_name) {
+            if let Some(variable) = variables.get(var_name) {
+                bound_variables.bind_variable(var_name, variable.value(), source_info)?;
+            }
+        }
+    }
+    Ok(())
 }
